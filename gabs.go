@@ -360,6 +360,77 @@ func (g *Container) Merge(toMerge *Container) error {
 	return nil
 }
 
+// MergeWithUniqueValues - Merges two gabs-containers, but makes sure values are unique
+func (g *Container) MergeWithUniqueValues(toMerge *Container) error {
+	var recursiveFnc func(map[string]interface{}, []string) error
+	recursiveFnc = func(mmap map[string]interface{}, path []string) error {
+		for key, value := range mmap {
+			newPath := append(path, key)
+			if g.Exists(newPath...) {
+				target := g.Search(newPath...)
+				switch t := value.(type) {
+				case map[string]interface{}:
+					switch targetV := target.Data().(type) {
+					case map[string]interface{}:
+						if err := recursiveFnc(t, newPath); err != nil {
+							return err
+						}
+					case []interface{}:
+						g.Set(append(targetV, t), newPath...)
+					default:
+						newSlice := append([]interface{}{}, targetV)
+						g.Set(append(newSlice, t), newPath...)
+					}
+				case []interface{}:
+					for _, valueOfSlice := range t {
+						exists := false
+						for _, arrayVal := range target.Data().([]interface{}) {
+							if valueOfSlice == arrayVal {
+								exists = true
+								break
+							}
+						}
+						if !exists {
+							if err := g.ArrayAppend(valueOfSlice, newPath...); err != nil {
+								return err
+							}
+						}
+					}
+				default:
+					switch targetV := target.Data().(type) {
+					case []interface{}:
+						exists := false
+						for _, arrayVal := range mmap {
+							if t == arrayVal {
+								exists = true
+								break
+							}
+						}
+						if !exists {
+							g.Set(append(targetV, t), newPath...)
+						}
+					default:
+						if t != targetV {
+							newSlice := append([]interface{}{}, targetV)
+							g.Set(append(newSlice, t), newPath...)
+						}
+					}
+				}
+			} else {
+				// path doesn't exist. So set the value
+				if _, err := g.Set(value, newPath...); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if mmap, ok := toMerge.Data().(map[string]interface{}); ok {
+		return recursiveFnc(mmap, []string{})
+	}
+	return nil
+}
+
 //--------------------------------------------------------------------------------------------------
 
 /*
